@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 // Create a scene
 const scene = new THREE.Scene();
@@ -27,6 +28,18 @@ const floor = new THREE.Mesh(floorGeometry, floorMaterial);
 floor.rotation.x = -Math.PI / 2;
 floor.position.y = -1;
 scene.add(floor);
+
+// load shelf.glb from public folder
+const loader = new GLTFLoader();
+
+let shelf;
+loader.load('/shelf.glb', (gltf) => {
+  shelf = gltf.scene;
+  //shelf.scale.set(0.1, 0.1, 0.1);
+  shelf.position.y = -0.5;
+  shelf.position.x = 2;
+  scene.add(shelf);
+});
 
 const light = new THREE.PointLight(0xffffff, 10, 100);
 light.position.set(0, 2, 2);
@@ -62,11 +75,70 @@ const rtTexture2 = new THREE.WebGLRenderTarget(512, 512, {
 });
 
 // add a plane with the texture
-const planeGeometry = new THREE.PlaneGeometry(1, 1);
-const planeMaterial = new THREE.MeshBasicMaterial({ map: rtTexture.texture });
-const plane = new THREE.Mesh(planeGeometry, planeMaterial);
-plane.position.x = 2;
-scene.add(plane);
+// const planeGeometry = new THREE.PlaneGeometry(1, 1);
+// const planeMaterial = new THREE.MeshBasicMaterial({ map: rtTexture.texture });
+// const plane = new THREE.Mesh(planeGeometry, planeMaterial);
+// plane.position.x = 2;
+// plane.position.y = 0.5;
+// scene.add(plane);
+const crtShader = {
+  uniforms: {
+    tDiffuse: { value: null },
+    time: { value: 0.0 },
+  },
+  vertexShader: `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: `
+    uniform sampler2D tDiffuse;
+    uniform float time;
+    varying vec2 vUv;
+    void main() {
+      vec2 p = -1.0 + 2.0 * vUv;
+      float len = length(p);
+      vec2 uv = vUv + (p / len) * 0.1 * cos(len * 25.0 - time * 3.0);
+      gl_FragColor = texture2D(tDiffuse, uv);
+    }
+  `,
+};
+
+let tv;
+loader.load('/tv_mokia.glb', (gltf) => {
+  tv = gltf.scene;
+  console.log(tv);
+  tv.scale.set(2, 2, 2);
+  tv.position.y = -0.05;
+  tv.position.x = 2;
+  tv.traverse((child) => {
+    console.log(child);
+    if (child.isMesh && child.name === 'MSH_TV_Mokia_MAT_TV_Glass_0') {
+      // make it glass
+      child.material = new THREE.MeshPhysicalMaterial({
+        color: 0x000000,
+        metalness: 0.5,
+        roughness: 0.1,
+        transparent: true,
+        opacity: 0.4,
+        thickness: 1,
+      });
+    }
+    if (child.isMesh && child.name === 'MSH_TV_Mokia_MAT_TV_Screen_0') {
+      child.material = new THREE.ShaderMaterial({
+        uniforms: {
+          tDiffuse: { value: rtTexture.texture },
+          time: crtShader.uniforms.time,
+        },
+        vertexShader: crtShader.vertexShader,
+        fragmentShader: crtShader.fragmentShader,
+      });
+    }
+  });
+  scene.add(tv);
+});
 
 const screenScene = new THREE.Scene();
 const screenCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
@@ -120,11 +192,12 @@ function animate() {
   renderer.render(screenScene, screenCamera);
 
   //renderer.render(screenScene, screenCamera);
-  planeMaterial.map = rtTexture.texture;
-  planeMaterial.needsUpdate = true;
+  // planeMaterial.map = rtTexture.texture;
+  // planeMaterial.needsUpdate = true;
 
   renderer.setRenderTarget(null);
   renderer.render(scene, camera);
+  crtShader.uniforms.time.value += 0.05;
 
   requestAnimationFrame(animate);
 }
